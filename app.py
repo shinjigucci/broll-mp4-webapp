@@ -38,9 +38,9 @@ jobs_lock = threading.Lock()
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 ORIENTATIONS = {
-    "portrait": (1080, 1920),
+    "portrait": (720, 1280),
     "landscape": (1280, 720),
-    "square": (1080, 1080),
+    "square": (720, 720),
 }
 
 
