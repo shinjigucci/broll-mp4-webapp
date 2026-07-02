@@ -157,14 +157,53 @@ def render_slide_images(raw_slides, job_dir, size, fit_mode, subtitle_space_perc
     return rendered
 
 
+def normalize_tts_script(script):
+    text = script.strip()
+    replacements = [
+        ("Claude Code", "クロードコード"),
+        ("Claude code", "クロードコード"),
+        ("claude code", "クロードコード"),
+        ("Claude", "クロード"),
+        ("SNS", "エスエヌエス"),
+        ("LP", "エルピー"),
+        ("L P", "エルピー"),
+        ("LINE", "ライン"),
+        ("AI", "エーアイ"),
+        ("YouTube", "ユーチューブ"),
+        ("Instagram", "インスタグラム"),
+        ("PDF", "ピーディーエフ"),
+        ("URL", "ユーアールエル"),
+        ("CTA", "シーティーエー"),
+        ("VREW", "ブリュー"),
+    ]
+    for before, after in replacements:
+        text = text.replace(before, after)
+
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[#*_`~<>\\[\\]{}|^=]", "", text)
+    text = text.replace("／", "、").replace("/", "、")
+    text = text.replace("&", "アンド")
+    text = text.replace("%", "パーセント")
+    text = text.replace("：", "。").replace(":", "。")
+    text = re.sub(r"[ \t　]+", "", text)
+    text = re.sub(r"\n{2,}", "。", text)
+    text = re.sub(r"\n", "。", text)
+    text = re.sub(r"。{2,}", "。", text)
+    text = re.sub(r"、{2,}", "、", text)
+    return text.strip("。、 ")
+
+
 def fish_tts(script, voice_id, model, speed, audio_path):
     if not FISH_AUDIO_API_KEY:
         raise RuntimeError("FISH_AUDIO_API_KEY が未設定です。")
     if not voice_id:
         raise RuntimeError("FISH_AUDIO_VOICE_ID が未設定です。")
 
+    tts_text = normalize_tts_script(script)
+    (audio_path.parent / "narration_tts_text.txt").write_text(tts_text, encoding="utf-8")
+
     payload = {
-        "text": script,
+        "text": tts_text,
         "reference_id": voice_id,
         "format": "mp3",
         "mp3_bitrate": 128,
@@ -173,7 +212,7 @@ def fish_tts(script, voice_id, model, speed, audio_path):
         "latency": "normal",
         "prosody": {"speed": speed, "volume": 0},
     }
-    app.logger.info("fish_tts start chars=%s voice_id_set=%s model=%s", len(script), bool(voice_id), model or DEFAULT_MODEL)
+    app.logger.info("fish_tts start chars=%s normalized_chars=%s voice_id_set=%s model=%s", len(script), len(tts_text), bool(voice_id), model or DEFAULT_MODEL)
     response = requests.post(
         "https://api.fish.audio/v1/tts",
         headers={
