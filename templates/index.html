@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BロールMP4メーカー</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>BロールMP4メーカー</h1>
+      <p>GPTsで作ったスライドをアップロードして、FISH Audioナレーション付きMP4に変換します。</p>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <form id="createForm">
+        <label class="field">
+          <span>スライド画像 / ZIP</span>
+          <input type="file" name="slides" accept=".png,.jpg,.jpeg,.webp,.zip" multiple required>
+          <small>ファイル名順に並びます。例: 01.png, 02.png</small>
+        </label>
+
+        <label class="field">
+          <span>ナレーション台本</span>
+          <textarea name="script" rows="12" placeholder="ここに台本を貼り付けます。" required></textarea>
+        </label>
+
+        <div class="grid">
+          <label class="field">
+            <span>画面サイズ</span>
+            <select name="orientation">
+              <option value="portrait">縦 9:16</option>
+              <option value="landscape">横 16:9</option>
+              <option value="square">正方形 1:1</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>スライドの合わせ方</span>
+            <select name="fit_mode">
+              <option value="contain">全体を入れる</option>
+              <option value="cover">画面いっぱい</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field compact">
+          <span>VREW字幕スペース</span>
+          <input type="range" name="subtitle_space_percent" min="0" max="30" step="1" value="18" id="subtitleSpace">
+          <output for="subtitleSpace" id="subtitleSpaceValue">18%</output>
+          <small>スライド下部を空けて、後からVREW字幕を入れやすくします。</small>
+        </label>
+
+        <div class="grid">
+          <label class="field">
+            <span>FISH Audio Voice ID</span>
+            <input type="text" name="voice_id" value="{{ default_voice_id }}" placeholder="未入力ならサーバー設定を使用">
+          </label>
+
+          <label class="field">
+            <span>モデル</span>
+            <input type="text" name="model" value="{{ default_model }}">
+          </label>
+        </div>
+
+        <label class="field compact">
+          <span>話速</span>
+          <input type="range" name="speed" min="0.7" max="1.3" step="0.05" value="1.0" id="speed">
+          <output for="speed" id="speedValue">1.00</output>
+        </label>
+
+        <button class="primary" type="submit">MP4を作成</button>
+      </form>
+    </section>
+
+    <aside class="panel status-panel">
+      <h2>生成状況</h2>
+      <div class="progress"><div id="bar"></div></div>
+      <p id="message">スライドと台本を入れて開始してください。</p>
+      <a id="download" class="download" href="#" hidden>MP4をダウンロード</a>
+      <dl id="meta"></dl>
+    </aside>
+  </main>
+
+  <script>
+    const form = document.getElementById('createForm');
+    const bar = document.getElementById('bar');
+    const message = document.getElementById('message');
+    const download = document.getElementById('download');
+    const meta = document.getElementById('meta');
+    const speed = document.getElementById('speed');
+    const speedValue = document.getElementById('speedValue');
+    const subtitleSpace = document.getElementById('subtitleSpace');
+    const subtitleSpaceValue = document.getElementById('subtitleSpaceValue');
+
+    speed.addEventListener('input', () => {
+      speedValue.value = Number(speed.value).toFixed(2);
+    });
+
+    subtitleSpace.addEventListener('input', () => {
+      subtitleSpaceValue.value = `${subtitleSpace.value}%`;
+    });
+
+    function setProgress(value, text) {
+      bar.style.width = `${value || 0}%`;
+      message.textContent = text || '';
+    }
+
+    function renderMeta(data) {
+      if (!data) return;
+      meta.innerHTML = `
+        <dt>スライド枚数</dt><dd>${data.slides}</dd>
+        <dt>音声尺</dt><dd>${data.duration_seconds}秒</dd>
+        <dt>1枚あたり</dt><dd>${data.slide_seconds}秒</dd>
+        <dt>字幕スペース</dt><dd>${data.subtitle_space_percent}%</dd>
+      `;
+    }
+
+    async function poll(jobId) {
+      const res = await fetch(`/status/${jobId}`);
+      const data = await res.json();
+      setProgress(data.progress, data.message);
+      if (data.status === 'done') {
+        download.hidden = false;
+        download.href = data.download_url;
+        renderMeta(data.meta);
+        form.querySelector('button').disabled = false;
+        return;
+      }
+      if (data.status === 'error') {
+        form.querySelector('button').disabled = false;
+        return;
+      }
+      setTimeout(() => poll(jobId), 2500);
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      download.hidden = true;
+      meta.innerHTML = '';
+      form.querySelector('button').disabled = true;
+      setProgress(5, 'アップロードしています。');
+      const res = await fetch('/create', { method: 'POST', body: new FormData(form) });
+      const data = await res.json();
+      if (!res.ok) {
+        setProgress(100, data.error || '開始できませんでした。');
+        form.querySelector('button').disabled = false;
+        return;
+      }
+      poll(data.job_id);
+    });
+  </script>
+</body>
+</html>

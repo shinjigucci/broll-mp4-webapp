@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BロールMP4メーカー</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+  <main class="login-box">
+    <h1>BロールMP4メーカー</h1>
+    <p>共有用ページです。パスワードを入力してください。</p>
+    <form method="post">
+      <input type="password" name="password" placeholder="パスワード" autocomplete="current-password" autofocus>
+      <button type="submit">入る</button>
+    </form>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  </main>
+</body>
+</html>
