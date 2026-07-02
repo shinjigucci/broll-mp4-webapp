@@ -47,12 +47,11 @@ def now_label():
 
 
 def is_logged_in():
-    return not APP_PASSWORD or session.get("ok") is True
+    return True
 
 
 def require_login():
-    if not is_logged_in():
-        abort(403)
+    return None
 
 
 def set_job(job_id, **updates):
@@ -292,15 +291,6 @@ def run_job(job_id, form_data):
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    if request.method == "POST" and request.form.get("password") is not None:
-        if request.form.get("password") == APP_PASSWORD:
-            session["ok"] = True
-            return redirect(url_for("index"))
-        return render_template("login.html", error="パスワードが違います。")
-
-    if not is_logged_in():
-        return render_template("login.html", error="")
-
     return render_template("index.html", default_voice_id=DEFAULT_VOICE_ID, default_model=DEFAULT_MODEL)
 
 
