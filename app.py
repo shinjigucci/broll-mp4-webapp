@@ -213,12 +213,30 @@ def ffprobe_duration(media_path):
 
 def create_slideshow(slides, audio_path, video_path, slide_seconds, audio_padding_seconds):
     list_path = video_path.parent / "slides.txt"
+    padded_audio_path = video_path.parent / "narration_padded.m4a"
+    pad_cmd = [
+        ffmpeg_path(),
+        "-y",
+        "-i",
+        str(audio_path),
+        "-af",
+        f"apad=pad_dur={audio_padding_seconds}",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        str(padded_audio_path),
+    ]
+    pad_proc = subprocess.run(pad_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", timeout=300)
+    if pad_proc.returncode != 0:
+        raise RuntimeError(f"音声余白の追加に失敗しました: {pad_proc.stderr[-1200:]}")
+
+    padded_duration = ffprobe_duration(padded_audio_path)
+
     with open(list_path, "w", encoding="utf-8") as handle:
         for slide in slides:
             handle.write(f"file '{slide.as_posix()}'\n")
             handle.write(f"duration {slide_seconds:.4f}\n")
-        handle.write(f"file '{slides[-1].as_posix()}'\n")
-        handle.write(f"duration {audio_padding_seconds:.4f}\n")
         handle.write(f"file '{slides[-1].as_posix()}'\n")
 
     cmd = [
@@ -231,7 +249,7 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds, audio_paddin
         "-i",
         str(list_path),
         "-i",
-        str(audio_path),
+        str(padded_audio_path),
         "-map",
         "0:v:0",
         "-map",
@@ -246,11 +264,12 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds, audio_paddin
         "aac",
         "-b:a",
         "160k",
+        "-shortest",
         "-movflags",
         "+faststart",
         str(video_path),
     ]
-    app.logger.info("ffmpeg start slides=%s slide_seconds=%.2f", len(slides), slide_seconds)
+    app.logger.info("ffmpeg start slides=%s slide_seconds=%.2f padded_duration=%.2f", len(slides), slide_seconds, padded_duration)
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", timeout=600)
     if proc.returncode != 0:
         raise RuntimeError(f"MP4生成に失敗しました: {proc.stderr[-1200:]}")
