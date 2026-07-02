@@ -180,14 +180,37 @@ def normalize_tts_script(script):
         text = text.replace(before, after)
 
     text = re.sub(r"https?://\S+", "", text)
-    text = re.sub(r"[#*_`~<>\\[\\]{}|^=]", "", text)
+    text = re.sub(r"[#*_`~<>\\[\\]{}|^=]", "、", text)
     text = text.replace("／", "、").replace("/", "、")
     text = text.replace("&", "アンド")
     text = text.replace("%", "パーセント")
     text = text.replace("：", "。").replace(":", "。")
-    text = re.sub(r"[ \t　]+", "", text)
+    text = re.sub(r"[ \t　]+", "、", text)
     text = re.sub(r"\n{2,}", "。", text)
     text = re.sub(r"\n", "。", text)
+
+    # TTS and subtitle recognition break when marketing nouns are glued together.
+    # Add explicit pauses between common ad-flow terms.
+    phrase_pauses = [
+        ("ブログ投稿プロフィール", "ブログ投稿、プロフィール"),
+        ("投稿プロフィール", "投稿、プロフィール"),
+        ("投稿文キャプション", "投稿文、キャプション"),
+        ("キャプション動画台本", "キャプション、動画台本"),
+        ("動画台本画像", "動画台本、画像"),
+        ("画像作りエルピー", "画像作り、エルピー"),
+        ("画像エルピー", "画像、エルピー"),
+        ("プロフィールエルピー", "プロフィール、エルピー"),
+        ("エルピー無料教材", "エルピー、無料教材"),
+        ("無料教材ライン", "無料教材、ライン"),
+        ("無料教材ライン案内", "無料教材、ライン案内"),
+        ("ライン案内セミナー案内", "ライン案内、セミナー案内"),
+        ("ライン販売", "ライン、販売"),
+        ("教育販売", "教育、販売"),
+        ("投稿プロフィール、エルピー", "投稿、プロフィール、エルピー"),
+    ]
+    for before, after in phrase_pauses:
+        text = text.replace(before, after)
+
     text = re.sub(r"。{2,}", "。", text)
     text = re.sub(r"、{2,}", "、", text)
     return text.strip("。、 ")
