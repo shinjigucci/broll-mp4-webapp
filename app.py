@@ -161,24 +161,21 @@ def render_slide_images(raw_slides, job_dir, size, fit_mode, subtitle_space_perc
 def normalize_tts_script(script):
     text = script.strip()
     replacements = [
-        ("Claude Code", "クロードコード"),
-        ("Claude code", "クロードコード"),
-        ("claude code", "クロードコード"),
-        ("Claude", "クロード"),
-        ("SNS", "エスエヌエス"),
-        ("LP", "エルピー"),
-        ("L P", "エルピー"),
-        ("LINE", "ライン"),
-        ("AI", "エーアイ"),
-        ("YouTube", "ユーチューブ"),
-        ("Instagram", "インスタグラム"),
-        ("PDF", "ピーディーエフ"),
-        ("URL", "ユーアールエル"),
-        ("CTA", "シーティーエー"),
-        ("VREW", "ブリュー"),
+        (r"Claude\s*Code", "クロードコード"),
+        (r"Claude", "クロード"),
+        (r"SNS", "エスエヌエス"),
+        (r"L\s*P", "エルピー"),
+        (r"LINE", "ライン"),
+        (r"AI", "エーアイ"),
+        (r"You\s*Tube", "ユーチューブ"),
+        (r"Instagram", "インスタグラム"),
+        (r"PDF", "ピーディーエフ"),
+        (r"URL", "ユーアールエル"),
+        (r"CTA", "シーティーエー"),
+        (r"VREW", "ブリュー"),
     ]
-    for before, after in replacements:
-        text = text.replace(before, after)
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
     text = re.sub(r"https?://\S+", "", text)
     text = re.sub(r"[#*_`~<>\\[\\]{}|^=]", "、", text)
@@ -190,30 +187,64 @@ def normalize_tts_script(script):
     text = re.sub(r"\n{2,}", "。", text)
     text = re.sub(r"\n", "。", text)
 
-    # TTS and subtitle recognition break when marketing nouns are glued together.
-    # Add explicit pauses between common ad-flow terms.
-    phrase_pauses = [
-        ("ブログ投稿プロフィール", "ブログ投稿、プロフィール"),
-        ("投稿プロフィール", "投稿、プロフィール"),
-        ("投稿文キャプション", "投稿文、キャプション"),
-        ("キャプション動画台本", "キャプション、動画台本"),
-        ("動画台本画像", "動画台本、画像"),
-        ("画像作りエルピー", "画像作り、エルピー"),
-        ("画像エルピー", "画像、エルピー"),
-        ("プロフィールエルピー", "プロフィール、エルピー"),
-        ("エルピー無料教材", "エルピー、無料教材"),
-        ("無料教材ライン", "無料教材、ライン"),
-        ("無料教材ライン案内", "無料教材、ライン案内"),
-        ("ライン案内セミナー案内", "ライン案内、セミナー案内"),
-        ("ライン販売", "ライン、販売"),
-        ("教育販売", "教育、販売"),
-        ("投稿プロフィール、エルピー", "投稿、プロフィール、エルピー"),
+    boundary_terms = [
+        "訴求フレーズ集",
+        "セミナー案内",
+        "ライン案内",
+        "ブログ投稿",
+        "動画台本",
+        "投稿文",
+        "無料教材",
+        "無料オファー",
+        "プロフィール",
+        "キャプション",
+        "フローマップ",
+        "プロンプト",
+        "クロードコード",
+        "エスエヌエス",
+        "ユーチューブ",
+        "インスタグラム",
+        "ピーディーエフ",
+        "エルピー",
+        "ライン",
+        "エーアイ",
+        "画像作り",
+        "画像",
+        "投稿",
+        "販売",
+        "教育",
+        "導線",
+        "商品",
+        "ターゲット",
     ]
-    for before, after in phrase_pauses:
-        text = text.replace(before, after)
+    boundary_terms = sorted(set(boundary_terms), key=len, reverse=True)
+    result = []
+    index = 0
+    while index < len(text):
+        matched = None
+        for term in boundary_terms:
+            if text.startswith(term, index):
+                matched = term
+                break
+        if matched:
+            if result and result[-1] not in "、。！？":
+                result.append("、")
+            result.append(matched)
+            next_index = index + len(matched)
+            if next_index < len(text) and text[next_index] not in "、。！？":
+                result.append("、")
+            index = next_index
+        else:
+            result.append(text[index])
+            index += 1
 
-    text = re.sub(r"。{2,}", "。", text)
+    text = "".join(result)
     text = re.sub(r"、{2,}", "、", text)
+    text = re.sub(r"。{2,}", "。", text)
+    text = re.sub(r"、(まで|から|へ|に|で|を|は|が|と|も|や|の|など|だけ|では|なら|として)", r"\1", text)
+    text = re.sub(r"(そして|また|さらに|ただ|でも|まず|次に|最後に|今回|今回の)、", r"\1、", text)
+    text = re.sub(r"、([。！？])", r"\1", text)
+    text = re.sub(r"([。！？])、", r"\1", text)
     return text.strip("。、 ")
 
 
