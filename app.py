@@ -211,28 +211,8 @@ def ffprobe_duration(media_path):
     raise RuntimeError("音声の長さを取得できませんでした。")
 
 
-def create_slideshow(slides, audio_path, video_path, slide_seconds, audio_padding_seconds):
+def create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration):
     list_path = video_path.parent / "slides.txt"
-    padded_audio_path = video_path.parent / "narration_padded.m4a"
-    pad_cmd = [
-        ffmpeg_path(),
-        "-y",
-        "-i",
-        str(audio_path),
-        "-af",
-        f"apad=pad_dur={audio_padding_seconds}",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "160k",
-        str(padded_audio_path),
-    ]
-    pad_proc = subprocess.run(pad_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", timeout=300)
-    if pad_proc.returncode != 0:
-        raise RuntimeError(f"音声余白の追加に失敗しました: {pad_proc.stderr[-1200:]}")
-
-    padded_duration = ffprobe_duration(padded_audio_path)
-
     with open(list_path, "w", encoding="utf-8") as handle:
         for slide in slides:
             handle.write(f"file '{slide.as_posix()}'\n")
@@ -249,7 +229,9 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds, audio_paddin
         "-i",
         str(list_path),
         "-i",
-        str(padded_audio_path),
+        str(audio_path),
+        "-t",
+        f"{target_duration:.3f}",
         "-map",
         "0:v:0",
         "-map",
@@ -269,7 +251,7 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds, audio_paddin
         "+faststart",
         str(video_path),
     ]
-    app.logger.info("ffmpeg start slides=%s slide_seconds=%.2f padded_duration=%.2f", len(slides), slide_seconds, padded_duration)
+    app.logger.info("ffmpeg start slides=%s slide_seconds=%.2f target_duration=%.2f", len(slides), slide_seconds, target_duration)
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", timeout=600)
     if proc.returncode != 0:
         raise RuntimeError(f"MP4生成に失敗しました: {proc.stderr[-1200:]}")
@@ -302,16 +284,16 @@ def run_job(job_id, form_data):
 
         set_job(job_id, message="音声尺に合わせてMP4を作っています。", progress=70)
         duration = ffprobe_duration(audio_path)
-        audio_padding_seconds = 2.5
-        slide_seconds = max(1.2, (duration + audio_padding_seconds) / len(slides))
+        slide_seconds = max(1.0, duration / len(slides))
+        target_duration = duration
         video_path = job_dir / f"broll-video-{now_label()}.mp4"
-        create_slideshow(slides, audio_path, video_path, slide_seconds, audio_padding_seconds)
+        create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration)
 
         meta = {
             "slides": len(slides),
             "duration_seconds": round(duration, 1),
             "slide_seconds": round(slide_seconds, 2),
-            "audio_padding_seconds": audio_padding_seconds,
+            "target_duration_seconds": round(target_duration, 1),
             "orientation": orientation,
             "subtitle_space_percent": form_data["subtitle_space_percent"],
             "video": video_path.name,
