@@ -211,12 +211,14 @@ def ffprobe_duration(media_path):
     raise RuntimeError("音声の長さを取得できませんでした。")
 
 
-def create_slideshow(slides, audio_path, video_path, slide_seconds):
+def create_slideshow(slides, audio_path, video_path, slide_seconds, audio_padding_seconds):
     list_path = video_path.parent / "slides.txt"
     with open(list_path, "w", encoding="utf-8") as handle:
         for slide in slides:
             handle.write(f"file '{slide.as_posix()}'\n")
             handle.write(f"duration {slide_seconds:.4f}\n")
+        handle.write(f"file '{slides[-1].as_posix()}'\n")
+        handle.write(f"duration {audio_padding_seconds:.4f}\n")
         handle.write(f"file '{slides[-1].as_posix()}'\n")
 
     cmd = [
@@ -244,7 +246,6 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds):
         "aac",
         "-b:a",
         "160k",
-        "-shortest",
         "-movflags",
         "+faststart",
         str(video_path),
@@ -282,14 +283,16 @@ def run_job(job_id, form_data):
 
         set_job(job_id, message="音声尺に合わせてMP4を作っています。", progress=70)
         duration = ffprobe_duration(audio_path)
-        slide_seconds = max(1.2, duration / len(slides))
+        audio_padding_seconds = 2.5
+        slide_seconds = max(1.2, (duration + audio_padding_seconds) / len(slides))
         video_path = job_dir / f"broll-video-{now_label()}.mp4"
-        create_slideshow(slides, audio_path, video_path, slide_seconds)
+        create_slideshow(slides, audio_path, video_path, slide_seconds, audio_padding_seconds)
 
         meta = {
             "slides": len(slides),
             "duration_seconds": round(duration, 1),
             "slide_seconds": round(slide_seconds, 2),
+            "audio_padding_seconds": audio_padding_seconds,
             "orientation": orientation,
             "subtitle_space_percent": form_data["subtitle_space_percent"],
             "video": video_path.name,
