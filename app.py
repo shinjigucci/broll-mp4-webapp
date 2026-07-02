@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -20,6 +21,8 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 JOBS_DIR = BASE_DIR / "jobs"
+FONT_DIR = BASE_DIR / "fonts"
+FONT_PATH = FONT_DIR / "NotoSansJP-VF.ttf"
 JOBS_DIR.mkdir(exist_ok=True)
 
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "300"))
@@ -211,7 +214,97 @@ def ffprobe_duration(media_path):
     raise RuntimeError("音声の長さを取得できませんでした。")
 
 
-def create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration):
+def ass_time(seconds):
+    seconds = max(0, float(seconds))
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    return f"{hours}:{minutes:02d}:{secs:05.2f}"
+
+
+def split_subtitle_text(script, max_chars):
+    text = re.sub(r"\s+", "", script.strip())
+    if not text:
+        return []
+    chunks = []
+    current = ""
+    for char in text:
+        current += char
+        if char in "。！？、,.!? " and len(current) >= max_chars * 0.55:
+            chunks.append(current.strip("、。,. "))
+            current = ""
+        elif len(current) >= max_chars:
+            chunks.append(current.strip("、。,. "))
+            current = ""
+    if current:
+        chunks.append(current.strip("、。,. "))
+    return [chunk for chunk in chunks if chunk]
+
+
+def wrap_subtitle_line(text, line_chars):
+    if len(text) <= line_chars:
+        return text
+    lines = []
+    current = ""
+    for char in text:
+        current += char
+        if len(current) >= line_chars:
+            lines.append(current)
+            current = ""
+    if current:
+        lines.append(current)
+    return r"\N".join(lines[:2])
+
+
+def write_ass_subtitles(script, ass_path, duration, width, height, subtitle_space_percent):
+    chunks = split_subtitle_text(script, max_chars=28)
+    if not chunks:
+        return None
+
+    font_size = max(42, int(height * 0.044))
+    margin_v = max(18, int(height * max(0.035, subtitle_space_percent / 100 * 0.28)))
+    line_chars = 18 if width <= 720 else 24
+    min_dur = 1.2
+    total_weight = sum(max(len(chunk), 8) for chunk in chunks)
+    current = 0.0
+
+    events = []
+    for index, chunk in enumerate(chunks):
+        if index == len(chunks) - 1:
+            end = duration
+        else:
+            dur = max(min_dur, duration * max(len(chunk), 8) / total_weight)
+            end = min(duration, current + dur)
+        if end <= current:
+            break
+        wrapped = wrap_subtitle_line(chunk, line_chars)
+        events.append(f"Dialogue: 0,{ass_time(current)},{ass_time(end)},Default,,0,0,0,,{wrapped}")
+        current = end
+        if current >= duration:
+            break
+
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {width}
+PlayResY: {height}
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Noto Sans JP,{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,1,9,2,2,24,24,{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    ass_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+    return ass_path
+
+
+def escape_filter_path(path):
+    return path.as_posix().replace("\\", "/").replace(":", r"\:")
+
+
+def create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration, ass_path=None):
     list_path = video_path.parent / "slides.txt"
     with open(list_path, "w", encoding="utf-8") as handle:
         for slide in slides:
@@ -251,6 +344,10 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds, target_durat
         "+faststart",
         str(video_path),
     ]
+    if ass_path:
+        vf_index = cmd.index("-c:v")
+        subtitle_filter = f"subtitles='{escape_filter_path(ass_path)}':fontsdir='{escape_filter_path(FONT_DIR)}'"
+        cmd[vf_index:vf_index] = ["-vf", subtitle_filter]
     app.logger.info("ffmpeg start slides=%s slide_seconds=%.2f target_duration=%.2f", len(slides), slide_seconds, target_duration)
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", timeout=600)
     if proc.returncode != 0:
@@ -287,7 +384,18 @@ def run_job(job_id, form_data):
         slide_seconds = max(1.0, duration / len(slides))
         target_duration = duration
         video_path = job_dir / f"broll-video-{now_label()}.mp4"
-        create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration)
+        ass_path = None
+        if form_data["burn_subtitles"]:
+            ass_path = write_ass_subtitles(
+                form_data["script"],
+                job_dir / "subtitles.ass",
+                target_duration,
+                size[0],
+                size[1],
+                form_data["subtitle_space_percent"],
+            )
+            app.logger.info("subtitles written job=%s enabled=%s", job_id, bool(ass_path))
+        create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration, ass_path)
 
         meta = {
             "slides": len(slides),
@@ -296,6 +404,7 @@ def run_job(job_id, form_data):
             "target_duration_seconds": round(target_duration, 1),
             "orientation": orientation,
             "subtitle_space_percent": form_data["subtitle_space_percent"],
+            "burn_subtitles": form_data["burn_subtitles"],
             "video": video_path.name,
         }
         (job_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -336,6 +445,7 @@ def create():
         "orientation": request.form.get("orientation", "portrait"),
         "fit_mode": request.form.get("fit_mode", "contain"),
         "subtitle_space_percent": float(request.form.get("subtitle_space_percent", "18")),
+        "burn_subtitles": request.form.get("burn_subtitles") == "on",
         "voice_id": request.form.get("voice_id", "").strip() or DEFAULT_VOICE_ID,
         "model": request.form.get("model", "").strip() or DEFAULT_MODEL,
         "speed": float(request.form.get("speed", "1.0")),
