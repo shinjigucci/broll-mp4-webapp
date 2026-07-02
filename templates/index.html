@@ -131,6 +131,7 @@
         return;
       }
       if (data.status === 'error') {
+        message.textContent = data.message || '生成中にエラーが起きました。';
         form.querySelector('button').disabled = false;
         return;
       }

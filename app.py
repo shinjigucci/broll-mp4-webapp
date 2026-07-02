@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -30,6 +31,7 @@ APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "replace-this-in-production")
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 jobs = {}
 jobs_lock = threading.Lock()
@@ -57,7 +59,11 @@ def require_login():
 def set_job(job_id, **updates):
     with jobs_lock:
         job = jobs.setdefault(job_id, {})
+        job.setdefault("created_at", time.time())
         job.update(updates)
+        job["updated_at"] = time.time()
+    if "message" in updates or "status" in updates:
+        app.logger.info("job=%s status=%s progress=%s message=%s", job_id, job.get("status"), job.get("progress"), job.get("message"))
 
 
 def get_job(job_id):
@@ -167,6 +173,7 @@ def fish_tts(script, voice_id, model, speed, audio_path):
         "latency": "normal",
         "prosody": {"speed": speed, "volume": 0},
     }
+    app.logger.info("fish_tts start chars=%s voice_id_set=%s model=%s", len(script), bool(voice_id), model or DEFAULT_MODEL)
     response = requests.post(
         "https://api.fish.audio/v1/tts",
         headers={
@@ -175,11 +182,12 @@ def fish_tts(script, voice_id, model, speed, audio_path):
             "model": model or DEFAULT_MODEL,
         },
         json=payload,
-        timeout=180,
+        timeout=(20, 240),
     )
     if response.status_code >= 400:
         raise RuntimeError(f"FISH Audioで音声生成に失敗しました: {response.status_code} {response.text[:500]}")
     audio_path.write_bytes(response.content)
+    app.logger.info("fish_tts done bytes=%s", len(response.content))
 
 
 def ffmpeg_path():
@@ -241,9 +249,11 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds):
         "+faststart",
         str(video_path),
     ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
+    app.logger.info("ffmpeg start slides=%s slide_seconds=%.2f", len(slides), slide_seconds)
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", timeout=600)
     if proc.returncode != 0:
         raise RuntimeError(f"MP4生成に失敗しました: {proc.stderr[-1200:]}")
+    app.logger.info("ffmpeg done output=%s bytes=%s", video_path.name, video_path.stat().st_size)
 
 
 def run_job(job_id, form_data):
@@ -261,6 +271,7 @@ def run_job(job_id, form_data):
             form_data["fit_mode"],
             form_data["subtitle_space_percent"],
         )
+        app.logger.info("slides rendered job=%s count=%s size=%s", job_id, len(slides), size)
 
         script_path = job_dir / "script.txt"
         script_path.write_text(form_data["script"], encoding="utf-8")
@@ -286,6 +297,7 @@ def run_job(job_id, form_data):
         (job_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         set_job(job_id, status="done", message="完成しました。", progress=100, video=str(video_path), meta=meta)
     except Exception as exc:
+        app.logger.exception("job failed job=%s", job_id)
         set_job(job_id, status="error", message=str(exc), progress=100)
 
 
@@ -339,6 +351,8 @@ def status(job_id):
         return jsonify({"error": "ジョブが見つかりません。"}), 404
     if job.get("status") == "done":
         job["download_url"] = url_for("download", job_id=job_id)
+    if job.get("created_at"):
+        job["elapsed_seconds"] = round(time.time() - job["created_at"])
     return jsonify(job)
 
 
