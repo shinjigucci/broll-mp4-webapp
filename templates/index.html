@@ -51,12 +51,7 @@
           <span>VREW字幕スペース</span>
           <input type="range" name="subtitle_space_percent" min="0" max="30" step="1" value="18" id="subtitleSpace">
           <output for="subtitleSpace" id="subtitleSpaceValue">18%</output>
-          <small>字幕を入れる下部スペースです。焼き込み字幕にも使います。</small>
-        </label>
-
-        <label class="check-row">
-          <input type="checkbox" name="burn_subtitles" checked>
-          <span>白文字＋太い黒縁取り字幕を入れる</span>
+          <small>スライド下部を空けて、後からVREW字幕を入れやすくします。</small>
         </label>
 
         <div class="grid">
@@ -122,7 +117,6 @@
         <dt>1枚あたり</dt><dd>${data.slide_seconds}秒</dd>
         <dt>末尾余白</dt><dd>${data.audio_padding_seconds || 0}秒</dd>
         <dt>字幕スペース</dt><dd>${data.subtitle_space_percent}%</dd>
-        <dt>字幕</dt><dd>${data.burn_subtitles ? 'あり' : 'なし'}</dd>
       `;
     }
 

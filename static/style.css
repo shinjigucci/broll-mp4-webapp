@@ -68,11 +68,6 @@ input, textarea, select {
   background: #fff;
 }
 
-input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
-}
-
 textarea {
   resize: vertical;
   line-height: 1.7;
@@ -100,14 +95,6 @@ textarea {
   padding: 14px 18px;
   font-weight: 700;
   cursor: pointer;
-}
-
-.check-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin: 4px 0 20px;
-  font-weight: 700;
 }
 
 .primary:hover, .login-box button:hover { background: var(--accent-strong); }
