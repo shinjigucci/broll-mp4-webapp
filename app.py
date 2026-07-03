@@ -202,6 +202,7 @@ def normalize_tts_script(script):
         "訴求フレーズ集",
         "セミナー案内",
         "ライン案内",
+        "集客導線",
         "ブログ投稿",
         "動画台本",
         "投稿文",
@@ -252,6 +253,12 @@ def normalize_tts_script(script):
     text = "".join(result)
     text = re.sub(r"、{2,}", "、", text)
     text = re.sub(r"。{2,}", "。", text)
+    text = re.sub(
+        r"(エスエヌエス|くろーどコード|エルピー|ライン|エーアイ)、(運用|集客|活用|投稿|広告|導線|案内|登録|販売|教育|自動化|生成)",
+        r"\1\2",
+        text,
+    )
+    text = text.replace("集客、導線", "集客導線")
     text = re.sub(r"、(まで|から|へ|に|で|を|は|が|と|も|や|の|など|だけ|では|なら|として)", r"\1", text)
     text = re.sub(r"(そして|また|さらに|ただ|でも|まず|次に|最後に|今回|今回の)、", r"\1、", text)
     text = re.sub(r"、([。！？])", r"\1", text)
