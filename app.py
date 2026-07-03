@@ -162,7 +162,7 @@ def render_slide_images(raw_slides, job_dir, size, fit_mode, subtitle_space_perc
 def normalize_tts_script(script):
     text = script.strip()
     replacements = [
-        (r"Claude\s*Code", "クロードコード"),
+        (r"Claude\s*Code", "クロード、コード"),
         (r"Claude", "クロード"),
         (r"SNS", "エスエヌエス"),
         (r"L\s*P", "エルピー"),
@@ -177,6 +177,7 @@ def normalize_tts_script(script):
     ]
     for pattern, replacement in replacements:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    text = text.replace("クロードコード", "クロード、コード")
 
     text = re.sub(r"https?://\S+", "", text)
     text = re.sub(r"[#*_`~<>\\[\\]{}|^=]", "、", text)
@@ -201,7 +202,7 @@ def normalize_tts_script(script):
         "キャプション",
         "フローマップ",
         "プロンプト",
-        "クロードコード",
+        "クロード",
         "エスエヌエス",
         "ユーチューブ",
         "インスタグラム",
