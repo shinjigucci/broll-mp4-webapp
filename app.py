@@ -36,6 +36,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 jobs = {}
 jobs_lock = threading.Lock()
+generation_lock = threading.Lock()
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 ORIENTATIONS = {
@@ -332,10 +333,16 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds, target_durat
         "1:a:0",
         "-c:v",
         "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "26",
         "-pix_fmt",
         "yuv420p",
         "-r",
-        "30",
+        "24",
+        "-threads",
+        "1",
         "-c:a",
         "aac",
         "-b:a",
@@ -355,45 +362,49 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds, target_durat
 def run_job(job_id, form_data):
     job_dir = JOBS_DIR / job_id
     try:
-        set_job(job_id, status="running", message="スライドを整理しています。", progress=10)
-        raw_slides = [Path(path) for path in form_data["raw_slides"]]
+        if generation_lock.locked():
+            set_job(job_id, status="queued", message="前の生成が終わるまで待機しています。", progress=5)
 
-        orientation = form_data["orientation"]
-        size = ORIENTATIONS.get(orientation, ORIENTATIONS["portrait"])
-        slides = render_slide_images(
-            raw_slides,
-            job_dir,
-            size,
-            form_data["fit_mode"],
-            form_data["subtitle_space_percent"],
-        )
-        app.logger.info("slides rendered job=%s count=%s size=%s", job_id, len(slides), size)
+        with generation_lock:
+            set_job(job_id, status="running", message="スライドを整理しています。", progress=10)
+            raw_slides = [Path(path) for path in form_data["raw_slides"]]
 
-        script_path = job_dir / "script.txt"
-        script_path.write_text(form_data["script"], encoding="utf-8")
+            orientation = form_data["orientation"]
+            size = ORIENTATIONS.get(orientation, ORIENTATIONS["portrait"])
+            slides = render_slide_images(
+                raw_slides,
+                job_dir,
+                size,
+                form_data["fit_mode"],
+                form_data["subtitle_space_percent"],
+            )
+            app.logger.info("slides rendered job=%s count=%s size=%s", job_id, len(slides), size)
 
-        set_job(job_id, message="FISH Audioでナレーションを生成しています。", progress=35)
-        audio_path = job_dir / "narration.mp3"
-        fish_tts(form_data["script"], form_data["voice_id"], form_data["model"], form_data["speed"], audio_path)
+            script_path = job_dir / "script.txt"
+            script_path.write_text(form_data["script"], encoding="utf-8")
 
-        set_job(job_id, message="音声尺に合わせてMP4を作っています。", progress=70)
-        duration = ffprobe_duration(audio_path)
-        slide_seconds = max(1.0, duration / len(slides))
-        target_duration = duration
-        video_path = job_dir / f"broll-video-{now_label()}.mp4"
-        create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration)
+            set_job(job_id, message="FISH Audioでナレーションを生成しています。", progress=35)
+            audio_path = job_dir / "narration.mp3"
+            fish_tts(form_data["script"], form_data["voice_id"], form_data["model"], form_data["speed"], audio_path)
 
-        meta = {
-            "slides": len(slides),
-            "duration_seconds": round(duration, 1),
-            "slide_seconds": round(slide_seconds, 2),
-            "target_duration_seconds": round(target_duration, 1),
-            "orientation": orientation,
-            "subtitle_space_percent": form_data["subtitle_space_percent"],
-            "video": video_path.name,
-        }
-        (job_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-        set_job(job_id, status="done", message="完成しました。", progress=100, video=str(video_path), meta=meta)
+            set_job(job_id, message="音声尺に合わせてMP4を作っています。", progress=70)
+            duration = ffprobe_duration(audio_path)
+            slide_seconds = max(1.0, duration / len(slides))
+            target_duration = duration
+            video_path = job_dir / f"broll-video-{now_label()}.mp4"
+            create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration)
+
+            meta = {
+                "slides": len(slides),
+                "duration_seconds": round(duration, 1),
+                "slide_seconds": round(slide_seconds, 2),
+                "target_duration_seconds": round(target_duration, 1),
+                "orientation": orientation,
+                "subtitle_space_percent": form_data["subtitle_space_percent"],
+                "video": video_path.name,
+            }
+            (job_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+            set_job(job_id, status="done", message="完成しました。", progress=100, video=str(video_path), meta=meta)
     except Exception as exc:
         app.logger.exception("job failed job=%s", job_id)
         set_job(job_id, status="error", message=str(exc), progress=100)
