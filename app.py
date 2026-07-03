@@ -45,6 +45,19 @@ ORIENTATIONS = {
     "square": (720, 720),
 }
 
+VIDEO_MODES = {
+    "broll": {
+        "label": "BロールMP4",
+        "min_minutes": 0,
+        "suggested_slides": "5〜20枚",
+    },
+    "video_lp_10min": {
+        "label": "10分動画LP",
+        "min_minutes": 8,
+        "suggested_slides": "25〜60枚",
+    },
+}
+
 
 def now_label():
     return time.strftime("%Y%m%d-%H%M%S")
@@ -286,6 +299,7 @@ def fish_tts(script, voice_id, model, speed, audio_path):
         "prosody": {"speed": speed, "volume": 0},
     }
     app.logger.info("fish_tts start chars=%s normalized_chars=%s voice_id_set=%s model=%s", len(script), len(tts_text), bool(voice_id), model or DEFAULT_MODEL)
+    read_timeout = max(240, min(1200, 180 + len(tts_text) // 8))
     response = requests.post(
         "https://api.fish.audio/v1/tts",
         headers={
@@ -294,7 +308,7 @@ def fish_tts(script, voice_id, model, speed, audio_path):
             "model": model or DEFAULT_MODEL,
         },
         json=payload,
-        timeout=(20, 240),
+        timeout=(30, read_timeout),
     )
     if response.status_code >= 400:
         raise RuntimeError(f"FISH Audioで音声生成に失敗しました: {response.status_code} {response.text[:500]}")
@@ -370,7 +384,8 @@ def create_slideshow(slides, audio_path, video_path, slide_seconds, target_durat
         str(video_path),
     ]
     app.logger.info("ffmpeg start slides=%s slide_seconds=%.2f target_duration=%.2f", len(slides), slide_seconds, target_duration)
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", timeout=600)
+    encode_timeout = max(900, int(target_duration * 4))
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore", timeout=encode_timeout)
     if proc.returncode != 0:
         raise RuntimeError(f"MP4生成に失敗しました: {proc.stderr[-1200:]}")
     app.logger.info("ffmpeg done output=%s bytes=%s", video_path.name, video_path.stat().st_size)
@@ -385,6 +400,8 @@ def run_job(job_id, form_data):
         with generation_lock:
             set_job(job_id, status="running", message="スライドを整理しています。", progress=10)
             raw_slides = [Path(path) for path in form_data["raw_slides"]]
+            video_mode = form_data.get("video_mode", "broll")
+            mode_info = VIDEO_MODES.get(video_mode, VIDEO_MODES["broll"])
 
             orientation = form_data["orientation"]
             size = ORIENTATIONS.get(orientation, ORIENTATIONS["portrait"])
@@ -412,14 +429,19 @@ def run_job(job_id, form_data):
             create_slideshow(slides, audio_path, video_path, slide_seconds, target_duration)
 
             meta = {
+                "mode": mode_info["label"],
                 "slides": len(slides),
                 "duration_seconds": round(duration, 1),
+                "duration_minutes": round(duration / 60, 1),
                 "slide_seconds": round(slide_seconds, 2),
                 "target_duration_seconds": round(target_duration, 1),
                 "orientation": orientation,
                 "subtitle_space_percent": form_data["subtitle_space_percent"],
                 "video": video_path.name,
+                "suggested_slides": mode_info["suggested_slides"],
             }
+            if mode_info["min_minutes"] and duration < mode_info["min_minutes"] * 60:
+                meta["length_warning"] = f"{mode_info['label']}としては少し短めです。台本を増やすと10分LPに近づきます。"
             (job_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
             set_job(job_id, status="done", message="完成しました。", progress=100, video=str(video_path), meta=meta)
     except Exception as exc:
@@ -452,10 +474,16 @@ def create():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
+    video_mode = request.form.get("video_mode", "broll")
+    orientation = request.form.get("orientation", "portrait")
+    if video_mode == "video_lp_10min" and orientation == "portrait":
+        orientation = "landscape"
+
     form_data = {
         "script": script,
+        "video_mode": video_mode,
         "raw_slides": [str(path) for path in raw_slides],
-        "orientation": request.form.get("orientation", "portrait"),
+        "orientation": orientation,
         "fit_mode": request.form.get("fit_mode", "contain"),
         "subtitle_space_percent": float(request.form.get("subtitle_space_percent", "18")),
         "voice_id": request.form.get("voice_id", "").strip() or DEFAULT_VOICE_ID,

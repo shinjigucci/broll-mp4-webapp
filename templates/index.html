@@ -3,20 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BロールMP4メーカー</title>
+  <title>Bロール・10分動画LP MP4メーカー</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <h1>BロールMP4メーカー</h1>
-      <p>GPTsで作ったスライドをアップロードして、FISH Audioナレーション付きMP4に変換します。</p>
+      <h1>Bロール・10分動画LP MP4メーカー</h1>
+      <p>GPTsで作ったスライドと台本をアップロードして、FISH Audioナレーション付きMP4に変換します。</p>
     </div>
   </header>
 
   <main class="layout">
     <section class="panel">
       <form id="createForm">
+        <label class="field">
+          <span>動画タイプ</span>
+          <select name="video_mode" id="videoMode">
+            <option value="broll">BロールMP4</option>
+            <option value="video_lp_10min">10分動画LP</option>
+          </select>
+          <small id="modeHelp">通常の台本とスライドから、ナレーション付きMP4を作ります。</small>
+        </label>
+
         <label class="field">
           <span>スライド画像 / ZIP</span>
           <input type="file" name="slides" accept=".png,.jpg,.jpeg,.webp,.zip" multiple required>
@@ -26,6 +35,7 @@
         <label class="field">
           <span>ナレーション台本</span>
           <textarea name="script" rows="12" placeholder="ここに台本を貼り付けます。" required></textarea>
+          <small id="scriptHelp">10分動画LPでは、8〜12分程度で読める台本と25〜60枚程度のスライドがおすすめです。</small>
         </label>
 
         <div class="grid">
@@ -95,6 +105,27 @@
     const speedValue = document.getElementById('speedValue');
     const subtitleSpace = document.getElementById('subtitleSpace');
     const subtitleSpaceValue = document.getElementById('subtitleSpaceValue');
+    const videoMode = document.getElementById('videoMode');
+    const modeHelp = document.getElementById('modeHelp');
+    const orientation = form.querySelector('[name="orientation"]');
+    const fitMode = form.querySelector('[name="fit_mode"]');
+
+    const modeText = {
+      broll: '通常の台本とスライドから、ナレーション付きMP4を作ります。',
+      video_lp_10min: '10分動画LP用です。横16:9、25〜60枚程度のスライド、8〜12分程度の台本を想定しています。'
+    };
+
+    videoMode.addEventListener('change', () => {
+      modeHelp.textContent = modeText[videoMode.value] || modeText.broll;
+      if (videoMode.value === 'video_lp_10min') {
+        orientation.value = 'landscape';
+        fitMode.value = 'contain';
+        if (Number(subtitleSpace.value) < 14) {
+          subtitleSpace.value = 14;
+          subtitleSpaceValue.value = '14%';
+        }
+      }
+    });
 
     speed.addEventListener('input', () => {
       speedValue.value = Number(speed.value).toFixed(2);
@@ -112,11 +143,15 @@
     function renderMeta(data) {
       if (!data) return;
       meta.innerHTML = `
+        <dt>動画タイプ</dt><dd>${data.mode || '-'}</dd>
         <dt>スライド枚数</dt><dd>${data.slides}</dd>
         <dt>音声尺</dt><dd>${data.duration_seconds}秒</dd>
+        <dt>分数</dt><dd>${data.duration_minutes || '-'}分</dd>
         <dt>1枚あたり</dt><dd>${data.slide_seconds}秒</dd>
         <dt>末尾余白</dt><dd>${data.audio_padding_seconds || 0}秒</dd>
         <dt>字幕スペース</dt><dd>${data.subtitle_space_percent}%</dd>
+        <dt>推奨枚数</dt><dd>${data.suggested_slides || '-'}</dd>
+        ${data.length_warning ? `<dt>確認</dt><dd>${data.length_warning}</dd>` : ''}
       `;
     }
 
